@@ -34,7 +34,7 @@ jobs:
         CERTIFICATE_PATH=$RUNNER_TEMP/developer_id_cert.p12
         
         # Decode the base64 certificate into the temporary file
-        echo -n "$CERTIFICATE_BASE64" | base64 --decode --output $CERTIFICATE_PATH
+        echo -n "$CERTIFICATE_BASE64" | base64 --decode > $CERTIFICATE_PATH
         
         # Create a keychain
         KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
@@ -56,22 +56,135 @@ jobs:
         # Create the directory for provisioning profiles if it doesn't exist
         mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
         
-        # Decode the provisioning profile and place it in the appropriate directory
-        PROFILE_PATH=~/Library/MobileDevice/Provisioning\ Profiles/Review_Developer_ID.provisionprofile
-        echo -n "$PROVISIONING_PROFILE_BASE64" | base64 --decode --output "$PROFILE_PATH"
+        # Create a temporary file for the profile and verify it's properly decoded
+        TEMP_PROFILE=$RUNNER_TEMP/profile.provisionprofile
+        echo -n "$PROVISIONING_PROFILE_BASE64" | base64 --decode > $TEMP_PROFILE
+        
+        # Check if the file was created and has content
+        if [ ! -s "$TEMP_PROFILE" ]; then
+          echo "ERROR: Failed to decode provisioning profile. Check the base64 encoding."
+          exit 1
+        fi
+        
+        # Copy to the correct location with a unique name based on UUID
+        UUID=$(grep -a -A 1 "UUID" "$TEMP_PROFILE" | grep -o "[-A-Z0-9]\{36\}")
+        if [ -z "$UUID" ]; then
+          echo "WARNING: Could not extract UUID from profile, using a timestamp instead"
+          UUID=$(date +%s)
+        fi
+        
+        PROFILE_PATH=~/Library/MobileDevice/Provisioning\ Profiles/$UUID.provisionprofile
+        cp "$TEMP_PROFILE" "$PROFILE_PATH"
         
         # Display that the profile was installed successfully
         echo "Provisioning profile installed at: $PROFILE_PATH"
+        echo "Profile UUID: $UUID"
         
-    - name: Build and sign the app
+    - name: Create export options file
+      run: |
+        echo '<?xml version="1.0" encoding="UTF-8"?>' > exportOptions.plist
+        echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' >> exportOptions.plist
+        echo '<plist version="1.0">' >> exportOptions.plist
+        echo '<dict>' >> exportOptions.plist
+        echo '    <key>method</key>' >> exportOptions.plist
+        echo '    <string>developer-id</string>' >> exportOptions.plist
+        echo '    <key>teamID</key>' >> exportOptions.plist
+        echo '    <string>43TJNHX42U</string>' >> exportOptions.plist
+        echo '    <key>signingStyle</key>' >> exportOptions.plist
+        echo '    <string>manual</string>' >> exportOptions.plist
+        echo '    <key>provisioningProfiles</key>' >> exportOptions.plist
+        echo '    <dict>' >> exportOptions.plist
+        echo '        <key>com.foxycorps.Review</key>' >> exportOptions.plist
+        echo '        <string>Review Developer ID</string>' >> exportOptions.plist
+        echo '    </dict>' >> exportOptions.plist
+        echo '    <key>signingCertificate</key>' >> exportOptions.plist
+        echo '    <string>Developer ID Application</string>' >> exportOptions.plist
+        echo '    <key>skipPackagePluginValidation</key>' >> exportOptions.plist
+        echo '    <true/>' >> exportOptions.plist
+        echo '    <key>compileBitcode</key>' >> exportOptions.plist
+        echo '    <false/>' >> exportOptions.plist
+        echo '</dict>' >> exportOptions.plist
+        echo '</plist>' >> exportOptions.plist
+        
+    - name: Build and Archive
+      run: |
+        # Build the project with special handling for package dependencies
+        xcodebuild archive \
+          -project Review.xcodeproj \
+          -scheme Review \
+          -archivePath ./build/Review.xcarchive \
+          -destination "generic/platform=macOS" \
+          CODE_SIGN_IDENTITY="Developer ID Application" \
+          DEVELOPMENT_TEAM=43TJNHX42U \
+          OTHER_CODE_SIGN_FLAGS="--options=runtime"
+          
+        # Check if archive was successful
+        if [ ! -d "./build/Review.xcarchive" ]; then
+          echo "ERROR: Archive failed to create"
+          exit 1
+        fi
+        
+    - name: Export Archive
+      run: |
+        # Export the archive using our custom exportOptions.plist
+        xcodebuild -exportArchive \
+          -archivePath ./build/Review.xcarchive \
+          -exportPath ./build/Export \
+          -exportOptionsPlist exportOptions.plist
+          
+        # Check if export was successful
+        if [ ! -d "./build/Export/Review.app" ]; then
+          echo "ERROR: Export failed to create the app"
+          exit 1
+        fi
+        
+    - name: Notarize App
       env:
         APP_SPECIFIC_PASSWORD: ${{ secrets.APP_SPECIFIC_PASSWORD }}
       run: |
-        # Make the build script executable
-        chmod +x build_for_distribution.sh
+        # Create a temporary file to store the password
+        PASS_TEMP_FILE=$RUNNER_TEMP/notarize_password
+        echo -n "$APP_SPECIFIC_PASSWORD" > "$PASS_TEMP_FILE"
         
-        # Run the build script
-        ./build_for_distribution.sh
+        # Create a ZIP for notarization
+        ditto -c -k --keepParent "./build/Export/Review.app" "./build/Review.zip"
+        
+        # Submit for notarization
+        echo "Submitting app for notarization..."
+        xcrun notarytool submit "./build/Review.zip" \
+          --apple-id "slyfoxalpha@gmail.com" \
+          --team-id "43TJNHX42U" \
+          --password "$PASS_TEMP_FILE" \
+          --wait
+          
+        # Remove the password file
+        rm "$PASS_TEMP_FILE"
+        
+        # Staple the notarization ticket
+        xcrun stapler staple "./build/Export/Review.app"
+        
+    - name: Create DMG
+      run: |
+        # Create a temporary directory for DMG creation
+        TEMP_DMG_DIR=$RUNNER_TEMP/dmg_temp
+        mkdir -p "$TEMP_DMG_DIR"
+        
+        # Copy the app to the temporary directory
+        cp -R "./build/Export/Review.app" "$TEMP_DMG_DIR/"
+        
+        # Create a symlink to /Applications for easy installation
+        ln -s /Applications "$TEMP_DMG_DIR/"
+        
+        # Create the DMG
+        hdiutil create -volname "Review" -srcfolder "$TEMP_DMG_DIR" -ov -format UDZO "./build/Review.dmg"
+        
+        # Check if DMG was created successfully
+        if [ ! -f "./build/Review.dmg" ]; then
+          echo "ERROR: Failed to create DMG"
+          exit 1
+        fi
+        
+        echo "DMG created successfully at ./build/Review.dmg"
         
     - name: Upload app
       uses: actions/upload-artifact@v4
