@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		540969D52D7150DE00BDE9D8 /* Kingfisher in Frameworks */ = {isa = PBXBuildFile; productRef = 540969D42D7150DE00BDE9D8 /* Kingfisher */; };
 		540969D82D71530600BDE9D8 /* OctoKit in Frameworks */ = {isa = PBXBuildFile; productRef = 540969D72D71530600BDE9D8 /* OctoKit */; };
+		540969E62D717CE200BDE9D8 /* LaunchAtLogin in Frameworks */ = {isa = PBXBuildFile; productRef = 540969E52D717CE200BDE9D8 /* LaunchAtLogin */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -28,6 +29,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				540969E62D717CE200BDE9D8 /* LaunchAtLogin in Frameworks */,
 				540969D82D71530600BDE9D8 /* OctoKit in Frameworks */,
 				540969D52D7150DE00BDE9D8 /* Kingfisher in Frameworks */,
 			);
@@ -74,6 +76,7 @@
 			packageProductDependencies = (
 				540969D42D7150DE00BDE9D8 /* Kingfisher */,
 				540969D72D71530600BDE9D8 /* OctoKit */,
+				540969E52D717CE200BDE9D8 /* LaunchAtLogin */,
 			);
 			productName = Review;
 			productReference = 540969B92D713BAB00BDE9D8 /* Review.app */;
@@ -106,6 +109,7 @@
 			packageReferences = (
 				540969D32D7150DE00BDE9D8 /* XCRemoteSwiftPackageReference "Kingfisher" */,
 				540969D62D71530600BDE9D8 /* XCRemoteSwiftPackageReference "octokit" */,
+				540969E42D717CE200BDE9D8 /* XCRemoteSwiftPackageReference "LaunchAtLogin-Modern" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 540969BA2D713BAB00BDE9D8 /* Products */;
@@ -350,6 +354,14 @@
 				minimumVersion = 0.14.0;
 			};
 		};
+		540969E42D717CE200BDE9D8 /* XCRemoteSwiftPackageReference "LaunchAtLogin-Modern" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sindresorhus/LaunchAtLogin-Modern";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -362,6 +374,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 540969D62D71530600BDE9D8 /* XCRemoteSwiftPackageReference "octokit" */;
 			productName = OctoKit;
+		};
+		540969E52D717CE200BDE9D8 /* LaunchAtLogin */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 540969E42D717CE200BDE9D8 /* XCRemoteSwiftPackageReference "LaunchAtLogin-Modern" */;
+			productName = LaunchAtLogin;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

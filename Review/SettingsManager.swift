@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import LaunchAtLogin
 
 class SettingsManager {
     static let shared = SettingsManager()
@@ -200,5 +201,11 @@ class SettingsManager {
     var showArchivedRepos: Bool {
         get { defaults.bool(forKey: "showArchivedRepos") }
         set { defaults.set(newValue, forKey: "showArchivedRepos") }
+    }
+    
+    // Property for launch at login setting using LaunchAtLogin
+    var launchAtLogin: Bool {
+        get { LaunchAtLogin.isEnabled }
+        set { LaunchAtLogin.isEnabled = newValue }
     }
 }
