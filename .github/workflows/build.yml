@@ -49,128 +49,148 @@ jobs:
         # Verify the certificate was imported correctly
         security find-identity -v -p codesigning $KEYCHAIN_PATH
         
-    - name: Install provisioning profile
-      env:
-        PROVISIONING_PROFILE_BASE64: ${{ secrets.PROVISIONING_PROFILE_BASE64 }}
+    - name: Install and Validate Provisioning Profile
       run: |
         # Debug: Show environment information
         echo "Running as user: $(whoami)"
         echo "Home directory: $HOME"
         
-        # Create the profiles directory with explicit permissions
+        # Create the profiles directory
         PROFILES_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
-        echo "Creating profiles directory at: $PROFILES_DIR"
         mkdir -p "$PROFILES_DIR"
+        echo "✅ Created profiles directory at: $PROFILES_DIR"
         
-        # Debug: Check if directory was created
-        if [ -d "$PROFILES_DIR" ]; then
-          echo "✅ Profiles directory created successfully"
-          ls -la "$PROFILES_DIR"
-        else
-          echo "❌ Failed to create profiles directory"
-          echo "Checking parent directories:"
-          ls -la "$HOME/Library/MobileDevice" || echo "MobileDevice directory doesn't exist"
-          ls -la "$HOME/Library" || echo "Library directory doesn't exist"
-          exit 1
-        fi
-        
-        # Create a temporary file for the profile and verify it's properly decoded
-        TEMP_PROFILE=$RUNNER_TEMP/profile.provisionprofile
+        # Create a temporary file for the profile
+        TEMP_PROFILE=$RUNNER_TEMP/profile.mobileprovision
         echo -n "$PROVISIONING_PROFILE_BASE64" | base64 --decode > $TEMP_PROFILE
         
-        # Check if the file was created and has content
+        # Verify the file was created and has content
         if [ ! -s "$TEMP_PROFILE" ]; then
-          echo "ERROR: Failed to decode provisioning profile. Check the base64 encoding."
+          echo "❌ ERROR: Failed to decode provisioning profile. Check the base64 encoding."
           exit 1
         fi
         
         echo "✅ Profile decoded successfully, size: $(wc -c < $TEMP_PROFILE) bytes"
         
-        # Check file type
-        echo "File type:"
-        file "$TEMP_PROFILE" || echo "Could not determine file type"
+        # Examine file type
+        echo "Examining file type:"
+        FILE_TYPE=$(file -b "$TEMP_PROFILE")
+        echo "File type: $FILE_TYPE"
         
-        # Use timestamp as fallback UUID
-        TIMESTAMP=$(date +%s)
-        
-        # Try various methods to extract UUID
-        echo "Attempting to extract UUID from profile..."
-        
-        # Method 1: Simple grep for UUID pattern
-        UUID=$(strings "$TEMP_PROFILE" | grep -o "[-A-Z0-9]\{36\}" | head -1)
-        if [ -n "$UUID" ]; then
-          echo "Found UUID using simple pattern match: $UUID"
-        else
-          echo "No UUID pattern found, trying alternate methods..."
-          
-          # Method 2: Extract using strings and searching for UUID key
-          UUID=$(strings "$TEMP_PROFILE" | grep -A 1 "UUID" | grep -v "UUID" | grep -o "[a-zA-Z0-9-]\{1,\}" | head -1)
-          if [ -n "$UUID" ]; then
-            echo "Found UUID using strings and UUID key: $UUID"
-          else
-            echo "No UUID found near UUID key, using timestamp instead: $TIMESTAMP"
-            UUID=$TIMESTAMP
-          fi
-        fi
-        
-        echo "Using profile identifier: $UUID"
-        PROFILE_PATH="$PROFILES_DIR/$UUID.provisionprofile"
-        cp "$TEMP_PROFILE" "$PROFILE_PATH"
-        
-        # Check if the copy succeeded
-        if [ -f "$PROFILE_PATH" ]; then
-          echo "✅ Provisioning profile installed successfully at: $PROFILE_PATH"
-          ls -la "$PROFILE_PATH"
-          echo "Installed profiles:"
-          ls -la "$PROFILES_DIR"
-        else
-          echo "❌ Failed to copy provisioning profile to $PROFILE_PATH"
-          echo "Checking permissions:"
-          ls -la "$PROFILES_DIR"
+        # Verify it's a provisioning profile not a certificate
+        if [[ "$FILE_TYPE" == *"Certificate"* ]]; then
+          echo "❌ ERROR: The file appears to be a certificate, not a provisioning profile."
+          echo "Please make sure you're uploading a .mobileprovision file from Apple Developer Portal."
           exit 1
         fi
         
-    - name: Create export options file
+        # Try to extract profile information
+        echo "Examining profile contents:"
+        security cms -D -i "$TEMP_PROFILE" > "$RUNNER_TEMP/profile.plist" 2>/dev/null || true
+        
+        if [ -s "$RUNNER_TEMP/profile.plist" ]; then
+          echo "✅ Successfully extracted profile information"
+          
+          # Extract UUID using plutil
+          UUID=$(plutil -extract UUID xml1 -o - "$RUNNER_TEMP/profile.plist" 2>/dev/null | sed -n 's/.*<string>\(.*\)<\/string>.*/\1/p')
+          
+          if [ -n "$UUID" ]; then
+            echo "✅ Found UUID: $UUID"
+          else
+            echo "⚠️ Could not extract UUID through normal means, trying alternate methods..."
+            
+            # Try grep method
+            UUID=$(strings "$TEMP_PROFILE" | grep -o "[-A-Z0-9]\{36\}" | head -1)
+            
+            if [ -n "$UUID" ]; then
+              echo "✅ Found UUID using pattern matching: $UUID"
+            else
+              echo "⚠️ No valid UUID found, using timestamp instead"
+              UUID=$(date +%s)
+            fi
+          fi
+          
+          # Extract app ID and team ID for verification
+          APP_ID=$(plutil -extract Entitlements.application-identifier xml1 -o - "$RUNNER_TEMP/profile.plist" 2>/dev/null | sed -n 's/.*<string>\(.*\)<\/string>.*/\1/p')
+          TEAM_ID=$(plutil -extract TeamIdentifier.0 xml1 -o - "$RUNNER_TEMP/profile.plist" 2>/dev/null | sed -n 's/.*<string>\(.*\)<\/string>.*/\1/p')
+          PROFILE_NAME=$(plutil -extract Name xml1 -o - "$RUNNER_TEMP/profile.plist" 2>/dev/null | sed -n 's/.*<string>\(.*\)<\/string>.*/\1/p')
+          
+          echo "Profile information:"
+          echo "- Name: ${PROFILE_NAME:-Unknown}"
+          echo "- App ID: ${APP_ID:-Unknown}"
+          echo "- Team ID: ${TEAM_ID:-Unknown}"
+          
+          # Copy with proper extension
+          PROFILE_PATH="$PROFILES_DIR/$UUID.mobileprovision"
+          cp "$TEMP_PROFILE" "$PROFILE_PATH"
+          
+          if [ -f "$PROFILE_PATH" ]; then
+            echo "✅ Provisioning profile installed successfully at: $PROFILE_PATH"
+            echo "Installed profiles:"
+            ls -la "$PROFILES_DIR"
+          else
+            echo "❌ Failed to copy provisioning profile to $PROFILE_PATH"
+            echo "Checking permissions:"
+            ls -la "$PROFILES_DIR"
+            exit 1
+          fi
+          
+        else
+          echo "❌ ERROR: The file does not appear to be a valid provisioning profile."
+          echo "Could not extract profile information using security cms."
+          echo "Please ensure you're uploading the correct .mobileprovision file."
+          exit 1
+        fi
+      env:
+        PROVISIONING_PROFILE_BASE64: ${{ secrets.PROVISIONING_PROFILE_BASE64 }}
+
+    - name: Create Export Options Plist
       run: |
-        echo '<?xml version="1.0" encoding="UTF-8"?>' > exportOptions.plist
-        echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' >> exportOptions.plist
-        echo '<plist version="1.0">' >> exportOptions.plist
-        echo '<dict>' >> exportOptions.plist
-        echo '    <key>method</key>' >> exportOptions.plist
-        echo '    <string>developer-id</string>' >> exportOptions.plist
-        echo '    <key>teamID</key>' >> exportOptions.plist
-        echo '    <string>43TJNHX42U</string>' >> exportOptions.plist
-        echo '    <key>signingStyle</key>' >> exportOptions.plist
-        echo '    <string>manual</string>' >> exportOptions.plist
-        echo '    <key>provisioningProfiles</key>' >> exportOptions.plist
-        echo '    <dict>' >> exportOptions.plist
-        echo '        <key>com.foxycorps.Review</key>' >> exportOptions.plist
-        echo '        <string>Review Developer ID</string>' >> exportOptions.plist
-        echo '    </dict>' >> exportOptions.plist
-        echo '    <key>signingCertificate</key>' >> exportOptions.plist
-        echo '    <string>Developer ID Application</string>' >> exportOptions.plist
-        echo '    <key>skipPackagePluginValidation</key>' >> exportOptions.plist
-        echo '    <true/>' >> exportOptions.plist
-        echo '    <key>compileBitcode</key>' >> exportOptions.plist
-        echo '    <false/>' >> exportOptions.plist
-        echo '</dict>' >> exportOptions.plist
-        echo '</plist>' >> exportOptions.plist
+        cat > exportOptions.plist << EOF
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>method</key>
+            <string>developer-id</string>
+            <key>teamID</key>
+            <string>43TJNHX42U</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>provisioningProfiles</key>
+            <dict>
+                <key>com.foxycorps.Review</key>
+                <string>Review Developer ID</string>
+            </dict>
+            <key>signingCertificate</key>
+            <string>Developer ID Application</string>
+            <key>skipPackagePluginValidation</key>
+            <true/>
+            <key>compileBitcode</key>
+            <false/>
+        </dict>
+        </plist>
+        EOF
         
         echo "✅ Created exportOptions.plist:"
         cat exportOptions.plist
-        
+
     - name: Build and Archive
       run: |
         # First, let's check the project setup
-        echo "📂 Project files:"
+        echo "📂 Project structure:"
         ls -la
+        
+        # Check Xcode project
+        echo "📋 Xcode project schemes:"
+        xcodebuild -project Review.xcodeproj -list
         
         # Create build directory
         mkdir -p ./build
         
-        # Build the project with special handling for package dependencies
+        # Build the project with verbose output
         echo "🔨 Building and archiving project..."
-        xcodebuild archive \
+        set -o pipefail && xcodebuild archive \
           -project Review.xcodeproj \
           -scheme Review \
           -archivePath ./build/Review.xcarchive \
@@ -178,92 +198,116 @@ jobs:
           CODE_SIGN_IDENTITY="Developer ID Application" \
           DEVELOPMENT_TEAM=43TJNHX42U \
           OTHER_CODE_SIGN_FLAGS="--options=runtime" \
-          | xcpretty || { echo "❌ Archive failed"; exit 1; }
-          
-        # Check if archive was successful
-        if [ ! -d "./build/Review.xcarchive" ]; then
-          echo "❌ ERROR: Archive failed to create"
+          -verbose | tee build_log.txt
+        
+        build_status=$?
+        if [ $build_status -ne 0 ] || [ ! -d "./build/Review.xcarchive" ]; then
+          echo "❌ ERROR: Archive failed to create (exit code: $build_status)"
+          echo "Build log (last 100 lines):"
+          tail -n 100 build_log.txt
+          echo "Checking keychain and provisioning profiles:"
+          security find-identity -v -p codesigning
+          ls -la "$HOME/Library/MobileDevice/Provisioning Profiles/"
           exit 1
         fi
         
         echo "✅ Archive created successfully at ./build/Review.xcarchive"
-        
-    - name: Export Archive
+        echo "Archive contents:"
+        ls -la ./build/Review.xcarchive
+
+    - name: Export App
       run: |
-        # Export the archive using our custom exportOptions.plist
-        echo "📦 Exporting archive..."
-        xcodebuild -exportArchive \
+        echo "📦 Exporting archive to .app..."
+        set -o pipefail && xcodebuild -exportArchive \
           -archivePath ./build/Review.xcarchive \
-          -exportPath ./build/Export \
           -exportOptionsPlist exportOptions.plist \
-          | xcpretty || { echo "❌ Export failed"; exit 1; }
-          
-        # Check if export was successful
-        if [ ! -d "./build/Export/Review.app" ]; then
-          echo "❌ ERROR: Export failed to create the app"
+          -exportPath ./build \
+          -verbose | tee export_log.txt
+        
+        export_status=$?
+        if [ $export_status -ne 0 ] || [ ! -d "./build/Review.app" ]; then
+          echo "❌ ERROR: Export failed (exit code: $export_status)"
+          echo "Export log (last 100 lines):"
+          tail -n 100 export_log.txt
           exit 1
         fi
         
-        echo "✅ App exported successfully to ./build/Export/Review.app"
-        
+        echo "✅ App exported successfully to ./build/Review.app"
+        echo "App contents:"
+        ls -la ./build/Review.app
+
     - name: Notarize App
-      env:
-        APP_SPECIFIC_PASSWORD: ${{ secrets.APP_SPECIFIC_PASSWORD }}
       run: |
-        # Create a temporary file to store the password
-        PASS_TEMP_FILE=$RUNNER_TEMP/notarize_password
-        echo -n "$APP_SPECIFIC_PASSWORD" > "$PASS_TEMP_FILE"
-        
-        # Create a ZIP for notarization
+        # Package the app for notarization
         echo "🔐 Creating ZIP for notarization..."
-        ditto -c -k --keepParent "./build/Export/Review.app" "./build/Review.zip"
+        ditto -c -k --keepParent "./build/Review.app" "./build/Review.zip"
         
-        # Submit for notarization
-        echo "📤 Submitting app for notarization..."
+        # Verify the ZIP file exists and has content
+        if [ ! -s "./build/Review.zip" ]; then
+          echo "❌ ERROR: Failed to create ZIP for notarization"
+          exit 1
+        fi
+        
+        echo "📤 Submitting app for notarization... (this may take several minutes)"
         xcrun notarytool submit "./build/Review.zip" \
-          --apple-id "slyfoxalpha@gmail.com" \
-          --team-id "43TJNHX42U" \
-          --password "$PASS_TEMP_FILE" \
-          --wait
+          --apple-id "$NOTARIZATION_USERNAME" \
+          --password "$NOTARIZATION_PASSWORD" \
+          --team-id "$TEAM_ID" \
+          --wait | tee notarization_log.txt
           
-        # Remove the password file
-        rm "$PASS_TEMP_FILE"
+        # Check the notarization status
+        if ! grep -q "success" notarization_log.txt; then
+          echo "❌ ERROR: Notarization failed. See log for details:"
+          cat notarization_log.txt
+          exit 1
+        fi
         
-        # Staple the notarization ticket
+        # Staple the notarization ticket to the app
         echo "📝 Stapling notarization ticket to app..."
-        xcrun stapler staple "./build/Export/Review.app"
+        xcrun stapler staple "./build/Review.app"
+        stapler_status=$?
+        
+        if [ $stapler_status -ne 0 ]; then
+          echo "❌ ERROR: Failed to staple notarization ticket (exit code: $stapler_status)"
+          exit 1
+        fi
         
         echo "✅ App notarized and stapled successfully"
-        
+      env:
+        NOTARIZATION_USERNAME: ${{ secrets.NOTARIZATION_USERNAME }}
+        NOTARIZATION_PASSWORD: ${{ secrets.NOTARIZATION_PASSWORD }}
+        TEAM_ID: "43TJNHX42U"
+
     - name: Create DMG
       run: |
-        # Create a temporary directory for DMG creation
-        echo "💿 Creating DMG..."
-        TEMP_DMG_DIR=$RUNNER_TEMP/dmg_temp
+        # Create a temporary DMG directory
+        TEMP_DMG_DIR="./build/temp_dmg"
         mkdir -p "$TEMP_DMG_DIR"
         
         # Copy the app to the temporary directory
-        cp -R "./build/Export/Review.app" "$TEMP_DMG_DIR/"
+        cp -R "./build/Review.app" "$TEMP_DMG_DIR/"
         
         # Create a symlink to /Applications for easy installation
-        ln -s /Applications "$TEMP_DMG_DIR/"
+        ln -s /Applications "$TEMP_DMG_DIR/Applications"
         
         # Create the DMG
+        echo "📀 Creating DMG file..."
         hdiutil create -volname "Review" -srcfolder "$TEMP_DMG_DIR" -ov -format UDZO "./build/Review.dmg"
         
-        # Check if DMG was created successfully
+        # Verify the DMG was created successfully
         if [ ! -f "./build/Review.dmg" ]; then
-          echo "❌ ERROR: Failed to create DMG"
+          echo "❌ ERROR: Failed to create DMG file"
           exit 1
         fi
         
         echo "✅ DMG created successfully at ./build/Review.dmg"
-        
-    - name: Upload app
+        ls -la ./build/Review.dmg
+
+    - name: Upload App
       uses: actions/upload-artifact@v4
       with:
         name: Review.app
-        path: build/Export/Review.app
+        path: build/Review.app
         
     - name: Upload DMG
       uses: actions/upload-artifact@v4
