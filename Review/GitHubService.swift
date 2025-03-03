@@ -12,8 +12,8 @@ import Kingfisher
 class GitHubService {
     private let token: String
     private let session = URLSession.shared
-    // Simple circular image processor with 14x14 size
-    private let profileImageProcessor = RoundCornerImageProcessor(cornerRadius: 7, targetSize: CGSize(width: 14, height: 14), roundingCorners: .all, backgroundColor: .clear)
+    // Simple circular image processor with 20x20 size
+    private let profileImageProcessor = RoundCornerImageProcessor(cornerRadius: 999, targetSize: CGSize(width: 14, height: 14), roundingCorners: .all, backgroundColor: .clear)
 
     init(token: String) {
         self.token = token
