@@ -12,8 +12,8 @@ import Kingfisher
 class GitHubService {
     private let token: String
     private let session = URLSession.shared
-    private let profileImageProcessor = ResizingImageProcessor(referenceSize: CGSize(width: 16, height: 16))
-        .append(another: RoundCornerImageProcessor(cornerRadius: 8))
+    // Simple circular image processor with 14x14 size
+    private let profileImageProcessor = RoundCornerImageProcessor(cornerRadius: 7, targetSize: CGSize(width: 14, height: 14), roundingCorners: .all, backgroundColor: .clear)
 
     init(token: String) {
         self.token = token
@@ -65,7 +65,9 @@ class GitHubService {
             .transition(.fade(0.2)),
             .backgroundDecode, // Decode on background thread to avoid UI stuttering
             .diskCacheExpiration(.days(30)), // Override global setting for this specific image if needed
-            .memoryCacheExpiration(.days(1))
+            .memoryCacheExpiration(.days(1)),
+            .downloadPriority(0.9), // Higher priority for profile images
+            .callbackQueue(.mainAsync) // Ensure callback on main thread
         ]
         
         // Use Kingfisher to download and cache the image with built-in processing
