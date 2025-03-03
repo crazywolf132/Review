@@ -283,6 +283,30 @@ class MenuManager: NSObject {
                     
                     // Set the submenu
                     prItem.submenu = actionsMenu
+                } else {
+                    // For user's own PRs, still provide a submenu with copy options
+                    let actionsMenu = NSMenu()
+                    prItem.submenu = actionsMenu
+                }
+                
+                // Add copy options to all PR items (regardless of whether they can take actions)
+                if let submenu = prItem.submenu {
+                    // Add separator if there are already items in the submenu
+                    if submenu.items.count > 0 {
+                        submenu.addItem(NSMenuItem.separator())
+                    }
+                    
+                    // Add copy PR number option
+                    let copyNumberItem = NSMenuItem(title: "Copy PR Number", action: #selector(copyPRNumber(_:)), keyEquivalent: "")
+                    copyNumberItem.representedObject = pr
+                    copyNumberItem.target = self
+                    submenu.addItem(copyNumberItem)
+                    
+                    // Add copy PR URL option
+                    let copyURLItem = NSMenuItem(title: "Copy PR URL", action: #selector(copyPRURL(_:)), keyEquivalent: "")
+                    copyURLItem.representedObject = pr
+                    copyURLItem.target = self
+                    submenu.addItem(copyURLItem)
                 }
                 
                 // Add a tooltip with status information
@@ -350,6 +374,9 @@ class MenuManager: NSObject {
         
         // Add padding with paragraph style
         let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.alignment = .left
+        paragraphStyle.lineBreakMode = .byTruncatingTail
+        // Reduce spacing to minimum
         paragraphStyle.headIndent = 5
         paragraphStyle.firstLineHeadIndent = 5
         paragraphStyle.tailIndent = -5
@@ -905,6 +932,18 @@ class MenuManager: NSObject {
         statusItem.representedObject = status
         statusItem.target = self
         return statusItem
+    }
+    
+    @objc private func copyPRNumber(_ sender: NSMenuItem) {
+        guard let pr = sender.representedObject as? PullRequest else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString("\(pr.number)", forType: .string)
+    }
+    
+    @objc private func copyPRURL(_ sender: NSMenuItem) {
+        guard let pr = sender.representedObject as? PullRequest else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(pr.url, forType: .string)
     }
 }
 

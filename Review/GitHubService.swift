@@ -12,10 +12,8 @@ import Kingfisher
 class GitHubService {
     private let token: String
     private let session = URLSession.shared
-    
-    // Define a processor for consistently resizing profile images
-    private let profileImageProcessor = ResizingImageProcessor(referenceSize: CGSize(width: 20, height: 20))
-        .append(another: RoundCornerImageProcessor(cornerRadius: 10))
+    private let profileImageProcessor = ResizingImageProcessor(referenceSize: CGSize(width: 16, height: 16))
+        .append(another: RoundCornerImageProcessor(cornerRadius: 8))
 
     init(token: String) {
         self.token = token
