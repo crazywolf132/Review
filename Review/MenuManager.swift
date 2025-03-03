@@ -582,20 +582,13 @@ class MenuManager: NSObject {
         generalHeader.isEnabled = false
         settingsMenu.addItem(generalHeader)
         
+        // Add refresh interval submenu
+        let refreshIntervalItem = NSMenuItem(title: "Refresh Interval", action: nil, keyEquivalent: "")
+        settingsMenu.addItem(refreshIntervalItem)
+        settingsMenu.setSubmenu(refreshIntervalSubMenu(), for: refreshIntervalItem)
+        
         // Add launch at login toggle
         settingsMenu.addItem(menuToggleItem(title: "Launch at Login", key: \SettingsManager.launchAtLogin))
-        
-        settingsMenu.addItem(NSMenuItem.separator())
-        
-        // Visibility options for PR status groups
-        let visibilityHeader = NSMenuItem(title: "Status Group Visibility", action: nil, keyEquivalent: "")
-        visibilityHeader.isEnabled = false
-        settingsMenu.addItem(visibilityHeader)
-        
-        // Add toggle for each status group
-        for status in PullRequest.Status.allCases {
-            settingsMenu.addItem(statusVisibilityMenuItem(for: status))
-        }
         
         return settingsMenu
     }
