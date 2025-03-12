@@ -12,8 +12,8 @@ import Kingfisher
 class GitHubService {
     private let token: String
     private let session = URLSession.shared
-    // Simple circular image processor with 20x20 size
-    private let profileImageProcessor = RoundCornerImageProcessor(cornerRadius: 999, targetSize: CGSize(width: 14, height: 14), roundingCorners: .all, backgroundColor: .clear)
+    // Simple circular image processor with fixed size
+    private let profileImageProcessor = RoundCornerImageProcessor(cornerRadius: 7, targetSize: CGSize(width: 14, height: 14), roundingCorners: .all, backgroundColor: .clear)
 
     init(token: String) {
         self.token = token
@@ -46,15 +46,8 @@ class GitHubService {
             return
         }
         
-        // Check if we can get the image directly from Kingfisher's cache first
-        if let cachedImage = ImageCache.default.retrieveImageInMemoryCache(forKey: urlString) {
-            print("DEBUG: Using in-memory cached profile image")
-            completion(cachedImage)
-            return
-        }
-        
-        // The disk cache check is async and can throw, let's use KingfisherManager instead
-        // which handles all the caching logic for us
+        // Don't use direct cache access as it bypasses the processor
+        // Always go through KingfisherManager to ensure consistent processing
         print("DEBUG: Downloading profile image with Kingfisher from: \(urlString)")
         
         // Options for image loading
@@ -67,7 +60,8 @@ class GitHubService {
             .diskCacheExpiration(.days(30)), // Override global setting for this specific image if needed
             .memoryCacheExpiration(.days(1)),
             .downloadPriority(0.9), // Higher priority for profile images
-            .callbackQueue(.mainAsync) // Ensure callback on main thread
+            .callbackQueue(.mainAsync), // Ensure callback on main thread
+            .forceRefresh(false) // Use cache when available
         ]
         
         // Use Kingfisher to download and cache the image with built-in processing
