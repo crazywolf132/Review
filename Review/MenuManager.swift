@@ -6,6 +6,7 @@
 //
 
 import Cocoa
+import LaunchAtLogin
 
 class MenuManager: NSObject {
     let menu = NSMenu()
@@ -546,6 +547,16 @@ class MenuManager: NSObject {
         settingsMenu.addItem(menuToggleItem(title: "Show PR Title", key: \SettingsManager.displayPRTitle))
         settingsMenu.addItem(menuToggleItem(title: "Show Repository Name", key: \SettingsManager.displayRepoName))
         settingsMenu.addItem(menuToggleItem(title: "Show PRs from Archived Repos", key: \SettingsManager.showArchivedRepos))
+        
+        settingsMenu.addItem(NSMenuItem.separator())
+        
+        // General app settings
+        let generalHeader = NSMenuItem(title: "General Settings", action: nil, keyEquivalent: "")
+        generalHeader.isEnabled = false
+        settingsMenu.addItem(generalHeader)
+        
+        // Add launch at login toggle
+        settingsMenu.addItem(menuToggleItem(title: "Launch at Login", key: \SettingsManager.launchAtLogin))
         
         settingsMenu.addItem(NSMenuItem.separator())
         
