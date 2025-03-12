@@ -60,8 +60,8 @@ class GitHubService {
             .diskCacheExpiration(.days(30)), // Override global setting for this specific image if needed
             .memoryCacheExpiration(.days(1)),
             .downloadPriority(0.9), // Higher priority for profile images
-            .callbackQueue(.mainAsync), // Ensure callback on main thread
-            .forceRefresh(false) // Use cache when available
+            .callbackQueue(.mainAsync) // Ensure callback on main thread
+            // Don't use forceRefresh to allow cache usage
         ]
         
         // Use Kingfisher to download and cache the image with built-in processing
