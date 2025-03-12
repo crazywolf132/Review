@@ -53,8 +53,26 @@ jobs:
       env:
         PROVISIONING_PROFILE_BASE64: ${{ secrets.PROVISIONING_PROFILE_BASE64 }}
       run: |
-        # Create the directory for provisioning profiles if it doesn't exist
-        mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+        # Debug: Show environment information
+        echo "Running as user: $(whoami)"
+        echo "Home directory: $HOME"
+        
+        # Create the profiles directory with explicit permissions
+        PROFILES_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+        echo "Creating profiles directory at: $PROFILES_DIR"
+        mkdir -p "$PROFILES_DIR"
+        
+        # Debug: Check if directory was created
+        if [ -d "$PROFILES_DIR" ]; then
+          echo "✅ Profiles directory created successfully"
+          ls -la "$PROFILES_DIR"
+        else
+          echo "❌ Failed to create profiles directory"
+          echo "Checking parent directories:"
+          ls -la "$HOME/Library/MobileDevice" || echo "MobileDevice directory doesn't exist"
+          ls -la "$HOME/Library" || echo "Library directory doesn't exist"
+          exit 1
+        fi
         
         # Create a temporary file for the profile and verify it's properly decoded
         TEMP_PROFILE=$RUNNER_TEMP/profile.provisionprofile
@@ -66,6 +84,8 @@ jobs:
           exit 1
         fi
         
+        echo "✅ Profile decoded successfully, size: $(wc -c < $TEMP_PROFILE) bytes"
+        
         # Copy to the correct location with a unique name based on UUID
         UUID=$(grep -a -A 1 "UUID" "$TEMP_PROFILE" | grep -o "[-A-Z0-9]\{36\}")
         if [ -z "$UUID" ]; then
@@ -73,12 +93,20 @@ jobs:
           UUID=$(date +%s)
         fi
         
-        PROFILE_PATH=~/Library/MobileDevice/Provisioning\ Profiles/$UUID.provisionprofile
+        echo "Using profile UUID: $UUID"
+        PROFILE_PATH="$PROFILES_DIR/$UUID.provisionprofile"
         cp "$TEMP_PROFILE" "$PROFILE_PATH"
         
-        # Display that the profile was installed successfully
-        echo "Provisioning profile installed at: $PROFILE_PATH"
-        echo "Profile UUID: $UUID"
+        # Check if the copy succeeded
+        if [ -f "$PROFILE_PATH" ]; then
+          echo "✅ Provisioning profile installed successfully at: $PROFILE_PATH"
+          ls -la "$PROFILE_PATH"
+        else
+          echo "❌ Failed to copy provisioning profile to $PROFILE_PATH"
+          echo "Checking permissions:"
+          ls -la "$PROFILES_DIR"
+          exit 1
+        fi
         
     - name: Create export options file
       run: |
@@ -106,9 +134,13 @@ jobs:
         echo '</dict>' >> exportOptions.plist
         echo '</plist>' >> exportOptions.plist
         
+        echo "✅ Created exportOptions.plist:"
+        cat exportOptions.plist
+        
     - name: Build and Archive
       run: |
         # Build the project with special handling for package dependencies
+        echo "🔨 Building and archiving project..."
         xcodebuild archive \
           -project Review.xcodeproj \
           -scheme Review \
@@ -116,27 +148,34 @@ jobs:
           -destination "generic/platform=macOS" \
           CODE_SIGN_IDENTITY="Developer ID Application" \
           DEVELOPMENT_TEAM=43TJNHX42U \
-          OTHER_CODE_SIGN_FLAGS="--options=runtime"
+          OTHER_CODE_SIGN_FLAGS="--options=runtime" \
+          | xcpretty || { echo "❌ Archive failed"; exit 1; }
           
         # Check if archive was successful
         if [ ! -d "./build/Review.xcarchive" ]; then
-          echo "ERROR: Archive failed to create"
+          echo "❌ ERROR: Archive failed to create"
           exit 1
         fi
+        
+        echo "✅ Archive created successfully at ./build/Review.xcarchive"
         
     - name: Export Archive
       run: |
         # Export the archive using our custom exportOptions.plist
+        echo "📦 Exporting archive..."
         xcodebuild -exportArchive \
           -archivePath ./build/Review.xcarchive \
           -exportPath ./build/Export \
-          -exportOptionsPlist exportOptions.plist
+          -exportOptionsPlist exportOptions.plist \
+          | xcpretty || { echo "❌ Export failed"; exit 1; }
           
         # Check if export was successful
         if [ ! -d "./build/Export/Review.app" ]; then
-          echo "ERROR: Export failed to create the app"
+          echo "❌ ERROR: Export failed to create the app"
           exit 1
         fi
+        
+        echo "✅ App exported successfully to ./build/Export/Review.app"
         
     - name: Notarize App
       env:
@@ -147,10 +186,11 @@ jobs:
         echo -n "$APP_SPECIFIC_PASSWORD" > "$PASS_TEMP_FILE"
         
         # Create a ZIP for notarization
+        echo "🔐 Creating ZIP for notarization..."
         ditto -c -k --keepParent "./build/Export/Review.app" "./build/Review.zip"
         
         # Submit for notarization
-        echo "Submitting app for notarization..."
+        echo "📤 Submitting app for notarization..."
         xcrun notarytool submit "./build/Review.zip" \
           --apple-id "slyfoxalpha@gmail.com" \
           --team-id "43TJNHX42U" \
@@ -161,11 +201,15 @@ jobs:
         rm "$PASS_TEMP_FILE"
         
         # Staple the notarization ticket
+        echo "📝 Stapling notarization ticket to app..."
         xcrun stapler staple "./build/Export/Review.app"
+        
+        echo "✅ App notarized and stapled successfully"
         
     - name: Create DMG
       run: |
         # Create a temporary directory for DMG creation
+        echo "💿 Creating DMG..."
         TEMP_DMG_DIR=$RUNNER_TEMP/dmg_temp
         mkdir -p "$TEMP_DMG_DIR"
         
@@ -180,11 +224,11 @@ jobs:
         
         # Check if DMG was created successfully
         if [ ! -f "./build/Review.dmg" ]; then
-          echo "ERROR: Failed to create DMG"
+          echo "❌ ERROR: Failed to create DMG"
           exit 1
         fi
         
-        echo "DMG created successfully at ./build/Review.dmg"
+        echo "✅ DMG created successfully at ./build/Review.dmg"
         
     - name: Upload app
       uses: actions/upload-artifact@v4
