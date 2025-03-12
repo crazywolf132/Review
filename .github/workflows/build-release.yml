@@ -1,0 +1,98 @@
+name: Build and Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number (without v prefix)'
+        required: true
+        type: string
+
+jobs:
+  build-and-release:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Set up Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+          
+      - name: Update version in project
+        run: |
+          # Update version in project.pbxproj
+          sed -i '' "s/MARKETING_VERSION = [^;]*/MARKETING_VERSION = ${{ github.event.inputs.version }}/" Review.xcodeproj/project.pbxproj
+          
+          # Verify change
+          grep "MARKETING_VERSION" Review.xcodeproj/project.pbxproj
+          
+          # Add and commit the version change
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add Review.xcodeproj/project.pbxproj
+          git commit -m "Bump version to ${{ github.event.inputs.version }}"
+          git tag -a "v${{ github.event.inputs.version }}" -m "Version ${{ github.event.inputs.version }}"
+          git push --follow-tags
+          
+      - name: Install create-dmg
+        run: brew install create-dmg
+        
+      - name: Build app
+        run: |
+          xcodebuild clean archive \
+            -project Review.xcodeproj \
+            -scheme Review \
+            -archivePath Review.xcarchive \
+            -configuration Release \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+            
+      - name: Create DMG
+        run: |
+          # Extract app from archive
+          mkdir -p build
+          cp -R Review.xcarchive/Products/Applications/Review.app build/
+          
+          # Check if background image exists
+          if [ -f "Resources/dmg-background.png" ]; then
+            # Create DMG file with background
+            create-dmg \
+              --volname "Review" \
+              --background "Resources/dmg-background.png" \
+              --window-pos 200 120 \
+              --window-size 800 400 \
+              --icon-size 100 \
+              --icon "Review.app" 200 190 \
+              --hide-extension "Review.app" \
+              --app-drop-link 600 185 \
+              "Review-v${{ github.event.inputs.version }}.dmg" \
+              "build/"
+          else
+            # Create DMG file without background
+            create-dmg \
+              --volname "Review" \
+              --window-pos 200 120 \
+              --window-size 800 400 \
+              --icon-size 100 \
+              --icon "Review.app" 200 190 \
+              --hide-extension "Review.app" \
+              --app-drop-link 600 185 \
+              "Review-v${{ github.event.inputs.version }}.dmg" \
+              "build/"
+          fi
+            
+      - name: Create GitHub Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ github.event.inputs.version }}
+          name: Review v${{ github.event.inputs.version }}
+          draft: false
+          prerelease: false
+          files: |
+            Review-v${{ github.event.inputs.version }}.dmg
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
