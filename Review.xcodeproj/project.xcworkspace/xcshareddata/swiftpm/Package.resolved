@@ -1,0 +1,33 @@
+{
+  "originHash" : "82b530f9052e76896b9de5c57b494238bf99604c1cdc0adb2a6d2dce5f088918",
+  "pins" : [
+    {
+      "identity" : "kingfisher",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/onevcat/Kingfisher",
+      "state" : {
+        "revision" : "3db26ab625d194c38e68c1a40e43d1bc12743fe0",
+        "version" : "8.2.0"
+      }
+    },
+    {
+      "identity" : "octokit.swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/nerdishbynature/octokit.swift",
+      "state" : {
+        "revision" : "cd108b387782d8509e64e298cf4800dc47fc40ae",
+        "version" : "0.14.0"
+      }
+    },
+    {
+      "identity" : "requestkit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/nerdishbynature/RequestKit.git",
+      "state" : {
+        "revision" : "e4d905fed938807e36d87f28375f88b7c1c26840",
+        "version" : "3.3.0"
+      }
+    }
+  ],
+  "version" : 3
+}
