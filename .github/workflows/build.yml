@@ -86,14 +86,34 @@ jobs:
         
         echo "✅ Profile decoded successfully, size: $(wc -c < $TEMP_PROFILE) bytes"
         
-        # Copy to the correct location with a unique name based on UUID
-        UUID=$(grep -a -A 1 "UUID" "$TEMP_PROFILE" | grep -o "[-A-Z0-9]\{36\}")
-        if [ -z "$UUID" ]; then
-          echo "WARNING: Could not extract UUID from profile, using a timestamp instead"
-          UUID=$(date +%s)
+        # Check file type
+        echo "File type:"
+        file "$TEMP_PROFILE" || echo "Could not determine file type"
+        
+        # Use timestamp as fallback UUID
+        TIMESTAMP=$(date +%s)
+        
+        # Try various methods to extract UUID
+        echo "Attempting to extract UUID from profile..."
+        
+        # Method 1: Simple grep for UUID pattern
+        UUID=$(strings "$TEMP_PROFILE" | grep -o "[-A-Z0-9]\{36\}" | head -1)
+        if [ -n "$UUID" ]; then
+          echo "Found UUID using simple pattern match: $UUID"
+        else
+          echo "No UUID pattern found, trying alternate methods..."
+          
+          # Method 2: Extract using strings and searching for UUID key
+          UUID=$(strings "$TEMP_PROFILE" | grep -A 1 "UUID" | grep -v "UUID" | grep -o "[a-zA-Z0-9-]\{1,\}" | head -1)
+          if [ -n "$UUID" ]; then
+            echo "Found UUID using strings and UUID key: $UUID"
+          else
+            echo "No UUID found near UUID key, using timestamp instead: $TIMESTAMP"
+            UUID=$TIMESTAMP
+          fi
         fi
         
-        echo "Using profile UUID: $UUID"
+        echo "Using profile identifier: $UUID"
         PROFILE_PATH="$PROFILES_DIR/$UUID.provisionprofile"
         cp "$TEMP_PROFILE" "$PROFILE_PATH"
         
@@ -101,6 +121,8 @@ jobs:
         if [ -f "$PROFILE_PATH" ]; then
           echo "✅ Provisioning profile installed successfully at: $PROFILE_PATH"
           ls -la "$PROFILE_PATH"
+          echo "Installed profiles:"
+          ls -la "$PROFILES_DIR"
         else
           echo "❌ Failed to copy provisioning profile to $PROFILE_PATH"
           echo "Checking permissions:"
@@ -139,6 +161,13 @@ jobs:
         
     - name: Build and Archive
       run: |
+        # First, let's check the project setup
+        echo "📂 Project files:"
+        ls -la
+        
+        # Create build directory
+        mkdir -p ./build
+        
         # Build the project with special handling for package dependencies
         echo "🔨 Building and archiving project..."
         xcodebuild archive \
