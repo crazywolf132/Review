@@ -105,6 +105,7 @@ class GitHubService {
                 number
                 title
                 url
+                isDraft
                 repository {
                   name
                   owner {
@@ -125,6 +126,7 @@ class GitHubService {
                 number
                 title
                 url
+                isDraft
                 repository {
                   name
                   owner {
@@ -299,6 +301,9 @@ class GitHubService {
             return nil
         }
         
+        // Check if PR is a draft
+        let isDraft = node["isDraft"] as? Bool ?? false
+        
         // Handle author - could be null if user deleted their account
         let authorLogin: String
         let authorImageURL: String
@@ -328,18 +333,29 @@ class GitHubService {
             hasMergeConflicts = false
         }
         
+        // Determine the status based on whether it's a draft PR
+        var prStatus = status
+        if isDraft && status == .yourPR {
+            prStatus = .draftPR
+        }
+        
         // Create the pull request
-        return PullRequest(
+        var pr = PullRequest(
             number: number,
             title: title,
             author: authorLogin, 
             authorImageURL: authorImageURL,
-            status: status,
+            status: prStatus,
             url: url,
             hasMergeConflicts: hasMergeConflicts,
             actionsStatus: .unknown, // Simplified for first implementation
             isInArchivedRepo: isArchived
         )
+        
+        // Set draft status
+        pr.isDraft = isDraft
+        
+        return pr
     }
     
     // Helper to remove duplicate PRs (keeping the one with highest priority status)
@@ -348,10 +364,11 @@ class GitHubService {
         let statusPriority: [PullRequest.Status: Int] = [
             .needsReview: 1,
             .yourPR: 2,
-            .assigned: 3,
-            .mentioned: 4,
-            .waitingReview: 5,
-            .approved: 6
+            .draftPR: 3,
+            .assigned: 4,
+            .mentioned: 5,
+            .waitingReview: 6,
+            .approved: 7
         ]
         
         // Group PRs by URL
@@ -660,6 +677,160 @@ class GitHubService {
         let repo = urlComponents[urlComponents.count - 3]
         
         return (owner: owner, repo: repo, number: prNumber)
+    }
+    
+    // MARK: - User Profile Methods
+    
+    // Fetch current user's username from GitHub API
+    func fetchCurrentUsername(completion: @escaping (String?) -> Void) {
+        let url = URL(string: "https://api.github.com/user")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.addValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        request.addValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.addValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
+        
+        let task = session.dataTask(with: request) { data, response, error in
+            guard let data = data, error == nil,
+                  let httpResponse = response as? HTTPURLResponse,
+                  httpResponse.statusCode == 200 else {
+                print("DEBUG: Error fetching user profile: \(error?.localizedDescription ?? "Unknown error")")
+                completion(nil)
+                return
+            }
+            
+            do {
+                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let username = json["login"] as? String {
+                    print("DEBUG: Found username: \(username)")
+                    completion(username)
+                } else {
+                    print("DEBUG: Failed to parse username from response")
+                    completion(nil)
+                }
+            } catch {
+                print("DEBUG: JSON parsing error: \(error.localizedDescription)")
+                completion(nil)
+            }
+        }
+        
+        task.resume()
+    }
+    
+    // Mark a draft PR as ready for review
+    func markPRReadyForReview(owner: String, repo: String, prNumber: Int, completion: @escaping (Bool, String?) -> Void) {
+        let urlString = "https://api.github.com/repos/\(owner)/\(repo)/pulls/\(prNumber)"
+        
+        guard let url = URL(string: urlString) else {
+            print("DEBUG: Invalid URL for marking PR ready")
+            completion(false, "Invalid URL")
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "PATCH"
+        request.addValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        request.addValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.addValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
+        
+        // Set the draft status to false to mark as ready for review
+        let patchData: [String: Any] = ["draft": false]
+        
+        // Convert data to JSON
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: patchData)
+        } catch {
+            print("DEBUG: Error creating request body: \(error.localizedDescription)")
+            completion(false, "Error creating request: \(error.localizedDescription)")
+            return
+        }
+        
+        // Send the request
+        session.dataTask(with: request) { data, response, error in
+            if let error = error {
+                print("DEBUG: Network error marking PR ready: \(error.localizedDescription)")
+                completion(false, "Network error: \(error.localizedDescription)")
+                return
+            }
+            
+            guard let httpResponse = response as? HTTPURLResponse else {
+                completion(false, "Invalid response")
+                return
+            }
+            
+            // Check HTTP status code
+            if httpResponse.statusCode >= 200 && httpResponse.statusCode < 300 {
+                completion(true, nil)
+            } else {
+                var errorMessage = "Error: HTTP \(httpResponse.statusCode)"
+                
+                // Try to extract error message from response
+                if let data = data, let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let message = json["message"] as? String {
+                    errorMessage = "GitHub says: \(message)"
+                }
+                
+                completion(false, errorMessage)
+            }
+        }.resume()
+    }
+    
+    // Close a PR
+    func closePR(owner: String, repo: String, prNumber: Int, completion: @escaping (Bool, String?) -> Void) {
+        let urlString = "https://api.github.com/repos/\(owner)/\(repo)/pulls/\(prNumber)"
+        
+        guard let url = URL(string: urlString) else {
+            print("DEBUG: Invalid URL for closing PR")
+            completion(false, "Invalid URL")
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "PATCH"
+        request.addValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        request.addValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.addValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
+        
+        // Set the state to closed
+        let patchData: [String: Any] = ["state": "closed"]
+        
+        // Convert data to JSON
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: patchData)
+        } catch {
+            print("DEBUG: Error creating request body: \(error.localizedDescription)")
+            completion(false, "Error creating request: \(error.localizedDescription)")
+            return
+        }
+        
+        // Send the request
+        session.dataTask(with: request) { data, response, error in
+            if let error = error {
+                print("DEBUG: Network error closing PR: \(error.localizedDescription)")
+                completion(false, "Network error: \(error.localizedDescription)")
+                return
+            }
+            
+            guard let httpResponse = response as? HTTPURLResponse else {
+                completion(false, "Invalid response")
+                return
+            }
+            
+            // Check HTTP status code
+            if httpResponse.statusCode >= 200 && httpResponse.statusCode < 300 {
+                completion(true, nil)
+            } else {
+                var errorMessage = "Error: HTTP \(httpResponse.statusCode)"
+                
+                // Try to extract error message from response
+                if let data = data, let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let message = json["message"] as? String {
+                    errorMessage = "GitHub says: \(message)"
+                }
+                
+                completion(false, errorMessage)
+            }
+        }.resume()
     }
 }
 

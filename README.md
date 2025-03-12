@@ -65,4 +65,4 @@ The repository includes a GitHub Actions workflow that automates the build and s
 
 ## License
 
-Copyright © 2025. All rights reserved. 
+Copyright © 2025 Brayden Moon. All rights reserved. 

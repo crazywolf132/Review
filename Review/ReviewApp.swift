@@ -12,8 +12,10 @@ struct ReviewApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
 
     var body: some Scene {
-        Settings {
+        WindowGroup {
             EmptyView()
         }
+        .windowStyle(.hiddenTitleBar)
+        .defaultSize(width: 0, height: 0)
     }
 }

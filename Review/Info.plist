@@ -17,13 +17,13 @@
     <key>CFBundlePackageType</key>
     <string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
+    <string>0.1.2</string>
     <key>CFBundleVersion</key>
     <string>1</string>
     <key>LSMinimumSystemVersion</key>
     <string>$(MACOSX_DEPLOYMENT_TARGET)</string>
     <key>NSHumanReadableCopyright</key>
-    <string>Copyright © 2023. All rights reserved.</string>
+    <string>Copyright © 2025 Brayden Moon. All rights reserved.</string>
     <key>NSUserNotificationUsageDescription</key>
     <string>Review needs to send notifications when new pull requests require your attention.</string>
     
